@@ -14,12 +14,12 @@ from typing import List
 import math
 import copy
 
-UAV_NAME = 'uav26'
+UAV_NAME = 'uav1'
 
 current_pose = []
 
 
-def quaternion_to_roll_pitch_yaw(q):
+def quaternion_to_roll_pitch_yaw(q) -> (float, float, float):
     qx, qy, qz, qw = q.x, q.y, q.z, q.w
     yaw = math.atan2(2.0 * (qy * qz + qw * qx), qw * qw - qx * qx - qy * qy + qz * qz)
     pitch = math.asin(-2.0 * (qx * qz - qw * qy))
@@ -51,7 +51,7 @@ def get_parameter(param):
     return rospy.get_param(param_name)
 
 
-def transform_reference(ref: Reference, header: Header, frame_id: str, seq: int=0) -> Reference:
+def transform_reference(ref: Reference, header: Header, frame_id: str, seq: int = 0) -> Reference:
     sp = rospy.ServiceProxy(f'/{UAV_NAME}/control_manager/transform_reference', TransformReferenceSrv)
 
     req = TransformReferenceSrvRequest()
@@ -83,7 +83,7 @@ def transform_to_gps_origin(path: List[Reference], header: Header) -> List[Refer
     return res
 
 
-def get_current_pose_in_frame(frame_id: str):
+def get_current_pose_in_frame(frame_id: str) -> List[float]:
     if frame_id == 'gps_origin':
         return copy.deepcopy(current_pose)
     else:
@@ -95,9 +95,7 @@ def get_current_pose_in_frame(frame_id: str):
         return [ref_t.position.x, ref_t.position.y, ref_t.position.z, ref_t.heading]
 
 
-def service_generate_trajectory(req: PathSrvRequest):
-    # print("Request:", req)
-
+def service_generate_trajectory(req: PathSrvRequest) -> PathSrvResponse:
     try:
         sampling_dt = get_parameter('sampling_dt')
         # TODO: use not default constraints, but some from path request
@@ -156,10 +154,8 @@ def service_generate_trajectory(req: PathSrvRequest):
             # Using only one known UAV, so start trajectory following
             uav_name = os.getenv('UAV_NAME')
             trajectory_service = f'/{uav_name}/control_manager/trajectory_reference'
-            # trajectory_service = f'/uav26/control_manager/trajectory_reference'
 
             sp = rospy.ServiceProxy(trajectory_service, TrajectoryReferenceSrv)
-
             resp = sp.call(request)
 
             log_info("Trajectory setting call result: " + resp.message)
@@ -182,9 +178,6 @@ def main():
     rospy.init_node('toppra_trajectory_generation')
 
     log_info("Initialized node")
-    print(rospy.get_name())
-    print(rospy.get_node_uri())
-    print(rospy.get_namespace())
 
     subscriber = rospy.Subscriber(f'/{UAV_NAME}/odometry/odom_gps', Odometry, odometry_callback)
     service = rospy.Service('/toppra_trajectory_generation', PathSrv, service_generate_trajectory)
