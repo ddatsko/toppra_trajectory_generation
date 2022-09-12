@@ -1,0 +1,7 @@
+<launch>
+    <arg name="GENERATION_CONFIG_FILE" default="$(find toppra_trajectory_generation)/cfg/toppra_trajectory_generation.yaml" />
+
+    <node name="toppra_trajectory_generation" pkg="toppra_trajectory_generation" type="ros_trajectory_generation.py" output="screen">
+        <rosparam file="$(arg GENERATION_CONFIG_FILE)" />
+    </node>
+</launch>
