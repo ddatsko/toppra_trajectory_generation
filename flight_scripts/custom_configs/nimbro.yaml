@@ -1,0 +1,26 @@
+topics: # topics published out of this machine to receivers specified above
+ - name: "control_manager/mpc_tracker/diagnostics"
+   compress: true # enable bz2 compression
+   rate: 1.0
+ - name: "control_manager/diagnostics"
+   compress: true # enable bz2 compression
+   rate: 1.0
+ - name: "uav_manager/diagnostics"
+   compress: true # enable bz2 compression
+   rate: 1.0
+ - name: "odometry/slow_odom"
+   compress: true # enable bz2 compression
+   rate: 1.0
+ - name: "control_manager/mpc_tracker/predicted_trajectory"
+   compress: true # enable bz2 compression
+   rate: 2.0
+ - name: "mrs_uav_status/uav_status"
+   compress: true # enable bz2 compression
+   rate: 1.0
+ - name: "mrs_uav_status/uav_status_short"
+   compress: true # enable bz2 compression
+   rate: 10.0
+
+services:
+  - name: "toppra_trajectory_generation"
+    type: mrs_msgs/PathSrv

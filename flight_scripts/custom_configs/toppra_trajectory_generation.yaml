@@ -1,0 +1,31 @@
+# Heading speed and acceleration used in trajectory generation
+heading_speed: 1  # [rad / s]
+heading_acc: 1  # [rad / s^2]
+
+# Time between sampled trajectory points sent to the control manager
+sampling_dt: 0.1  # [s]
+
+# When generating constraints per axis, this value will be added to each axis
+# This way, when travelling along horizontal and vertical lines, the UAV can still move not only strictly along the line
+max_speed_eps: 0.2  # [m/s]
+
+# The same process as with "max_speed_eps" will be done with acceleration and "max_acc_eps"
+max_acc_eps: 0.2  # [m/s^2]
+
+# TODO: tune parameters below properly according to the use case
+# Distance from turns, at which the UAV will have equal speed and acceleration constraints in each axis
+equal_limits_distance: 15  # [m]
+
+# Minimum distance between added waypoints in long path segments
+distance_between_added_way_pts: 30  # [m]
+
+# Minimum distance from turning point to an added point
+distance_between_added_and_turns: 5  # [m]
+
+# Whether the velocities and acceleration should be constrained with constraints from constraint manager too
+# if they are smaller than ones defined in Path message
+constrain_with_constraint_manager: true
+
+# Number of seconds to sleep after calling service to stop trajectory tracking
+# If trajectory is generated with no tim delay on moving UAV, the initial trajectory points will be shifted correspondingly
+sleep_after_stop: 4.0  # [s]

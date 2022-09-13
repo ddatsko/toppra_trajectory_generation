@@ -1,0 +1,105 @@
+#
+## DEFINITION OF THE ARENA
+#
+
+utm_origin_units: 0 # 0 - UTM, 1 - Latitude Longitude
+# !!! BEWARE !!!: the lat&lon and UTM coordinates below might be wrong
+# !!! do NOT just switch utm_origin_units from 0<->1, the other form
+# !!! might not be updated or even set correctly in the first place.
+
+# cisar race track
+utm_origin_x: 458422.2
+utm_origin_y: 5551241.4
+
+# # mezi stromy a lampou
+# utm_origin_x: 458383.0
+# utm_origin_y: 5551267.0
+
+# # mezi krtinci
+# utm_origin_x: 458326
+# utm_origin_y: 5551249
+
+# # Giuseppe's lamp
+# utm_origin_x: 458393
+# utm_origin_y: 5551259
+
+utm_origin_lat: 0.0
+utm_origin_lon: 0.0
+
+init_gps_origin_local: false # origin of gps_origin will be in the position of UAV at odometry launch
+init_gps_offset_x: 0.0 # initial position of UAV relative to gps_origin when init_gps_origin_local is enabled
+init_gps_offset_y: 0.0 # initial position of UAV relative to gps_origin when init_gps_origin_local is enabled
+
+safety_area:
+
+  use_safety_area: true
+
+  frame_name: "gps_origin"
+
+  polygon_obstacles:
+    # loaded as a vector of matrices
+    # each matrix has polygon vertices in columns
+    # [[M1], [M2]]
+    enabled: false
+    data: [1, 10, 10, 1,    5, 8, 5,
+           1, 1, 10, 10,    5, 5, 8,]
+    rows: 2 # each matrix has two rows
+    cols: [4, 3] # nums of cols of each matrix
+
+  point_obstacles:
+    # loaded as a vector of matrices
+    # x, y, radius
+    enabled: false
+    # [x1, y1, radisu1, height1,
+    #  x2, y2, radius2, height2]
+    data: [50.112116, 14.418092, 2, 4,
+           50.112214, 14.418636, 2, 4]
+    rows: 2 # each matrix has a single row
+    cols: [4, 4] # nums of cols of each matrix
+
+  # convex polygon CCW
+  # race track
+  safety_area: [30.9, 26.4,
+  -45.0, 7.27,
+  -31.5, -38.0,
+  44.5, -23.5]
+
+  # # convex polygon CCW
+  # # race track extended
+  # safety_area: [
+  # 44.8, -26.4,
+  # 31.8, 25.6,
+  # -112.2, -0.4,
+  # -48.2, -48.4
+  # ]
+
+  # # convex polygon CCW
+  # # mezi stromy a lampou
+  # safety_area: [
+  # 10.0, 10.0,
+  # -10.0, 10.0,
+  # -10.0, -10.0,
+  # 10.0, -10.0
+  # ]
+
+  # # convex polygon CCW
+  # # mezi krtinci
+  # safety_area: [
+  #   -8, -43,
+  #   52, -54,
+  #   42, 4,
+  #   14, 20,
+  #   -26, 15,
+  #   -32, -26,
+  # ]
+
+  # # Giuseppe's lamp
+  # safety_area: [
+  #   50.112031, 14.417871,
+  #   50.112206, 14.418939,
+  #   50.112344, 14.418459,
+  #   50.112236, 14.417759,
+  # ]
+
+  max_height: 8.0
+  min_height: 1.0
