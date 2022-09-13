@@ -73,6 +73,7 @@ class TrajectoryGenerationManager:
             for j in range(number_of_added):
                 res.append(waypoint_between_in_distance(init_waypoints[i], init_waypoints[i + 1], first_added_shift))
                 first_added_shift += self.distance_between_added
+        res.append(init_waypoints[-1])
         return np.array(res)
 
     def get_extra_dimensions_constraints(self):

@@ -21,3 +21,11 @@ distance_between_added_way_pts: 30  # [m]
 
 # Minimum distance from turning point to an added point
 distance_between_added_and_turns: 5  # [m]
+
+# Whether the velocities and acceleration should be constrained with constraints from constraint manager too
+# if they are smaller than ones defined in Path message
+constrain_with_constraint_manager: true
+
+# Number of seconds to sleep after calling service to stop trajectory tracking
+# If trajectory is generated with no tim delay on moving UAV, the initial trajectory points will be shifted correspondingly
+sleep_after_stop: 4.0  # [s]

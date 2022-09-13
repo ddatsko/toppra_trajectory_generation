@@ -1,7 +1,7 @@
 import toppra as ta
 from toppra.constraint import LinearConstraint, DiscretizationType
 import numpy as np
-from toppra.interpolator import  AbstractGeometricPath
+from toppra.interpolator import AbstractGeometricPath
 
 
 class JointAccelerationConstraintVarying(LinearConstraint):
