@@ -6,6 +6,7 @@ from typing import List
 import math
 import copy
 import os
+import numpy as np
 
 
 def quaternion_to_roll_pitch_yaw(q) -> (float, float, float):
@@ -84,3 +85,25 @@ def get_pose_in_frame(frame_id: str, pose_gps_origin: List[float]) -> List[float
         origin_ref.heading = pose_gps_origin[3]
         ref_t = transform_reference(origin_ref, Header(frame_id='gps_origin'), frame_id, 0)
         return [ref_t.position.x, ref_t.position.y, ref_t.position.z, ref_t.heading]
+
+
+def get_angle(a, b, c):
+    ang = math.radians(math.degrees(math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(a[1] - b[1], a[0] - b[0])))
+    return ang + math.pi * 2 if ang < 0 else ang
+
+
+def isclose(v1, v2, eps=1e-1):
+    return abs(v1 - v2) < eps
+
+
+def read_points_from_file(filename):
+    with open(filename, 'r') as f:
+        return np.array(list(map(lambda line: list(map(lambda x: float(x.strip()), line.split(','))) + [5.0, 0.0],
+                                 filter(lambda x: x, f.readlines()))))
+
+
+def waypoint_between_in_distance(w1, w2, distance):
+    if np.linalg.norm(w2 - w1) < distance:
+        return w2
+    else:
+        return w1 + (w2 - w1) / np.linalg.norm(w2 - w1) * distance
