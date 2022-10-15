@@ -6,6 +6,7 @@ from acceleration_constraint_varying import JointAccelerationConstraintVarying
 from toppra.constraint import DiscretizationType
 import toppra.algorithm as algo
 import math
+from utils import get_angle
 
 
 # This class is intended to replace the one in trajectory_generation when working well
@@ -157,18 +158,39 @@ class TrajectoryGenerationManager2:
         # For now, just set very optimistic constraints, that for sure will have to be changed
         # Acceleration time
         t_acc = self.max_speed / self.max_acc
-        s_acc = 0.5 * self.max_acc * t_acc**2
+        s_acc = 0.5 * self.max_acc * t_acc ** 2
         return s_acc
 
+    def _constraints_violated(self, trajectory) -> bool:
+        # TODO
+        pass
 
+    def _update_waypoint_constraints(self, trajectory):
+        # TODO
+        pass
 
     def plan_trajectory(self, way_pts):
         # TODO: check if linspae here is a good idea and if the numbers should not correspond to the distance between waypoints
         ss = np.linspace(0, 1, way_pts.shape[0])
         self._path = ta.SplineInterpolator(ss, way_pts)
-
         self._waypoints = self._path.waypoints
 
+        # Generate initial constraints
+        self._current_waypoints_constraints.append(0)
+        for i in range(1, len(self._waypoints) - 1):
+            self._current_waypoints_constraints.append(self._no_constraints_init_distance(get_angle(
+                self._waypoints[1][i - 1],
+                self._waypoints[1][i],
+                self._waypoints[1][i + 1]
+            )))
+        self._current_waypoints_constraints.append(0)
 
+        trajectory = self._plan_one_trajectory()
+        while self._constraints_violated(trajectory):
+            self._update_waypoint_constraints(trajectory)
+            trajectory = self._plan_one_trajectory()
+
+
+        return trajectory
 
 
