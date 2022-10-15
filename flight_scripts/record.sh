@@ -16,8 +16,25 @@ exclude=(
 # ROS communication hiccups, which can lead to eland, failsafe
 # or just a CRASH.
 
+
+# '/uav67/bluefox_down/camera_info'
+'/uav67/bluefox_down/image_raw'
+#'/uav67/bluefox_down/image_raw/compressed'
+#'/uav67/bluefox_down/image_raw/compressed/parameter_descriptions'
+#'/uav67/bluefox_down/image_raw/compressed/parameter_updates'
+'/uav67/bluefox_down/image_raw/compressedDepth'
+'/uav67/bluefox_down/image_raw/compressedDepth/parameter_descriptions'
+'/uav67/bluefox_down/image_raw/compressedDepth/parameter_updates'
+'/uav67/bluefox_down/image_raw/theora'
+'/uav67/bluefox_down/image_raw/theora/parameter_descriptions'
+'/uav67/bluefox_down/image_raw/theora/parameter_updates'
+'/uav67/bluefox_down/parameter_descriptions'
+'/uav67/bluefox_down/parameter_updates'
+
+
+
 # Every topic containing "compressed"
-'(.*)compressed(.*)'
+# '(.*)compressed(.*)'
 # Every topic containing "image_raw"
 # '(.*)image_raw(.*)'
 # Every topic containing "theora"
