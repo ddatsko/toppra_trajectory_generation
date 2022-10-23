@@ -1,6 +1,8 @@
 import numpy as np
 import toppra as ta
-from typing import List
+from typing import List, Tuple
+
+import toppra.interpolator
 from toppra.constraint import JointVelocityConstraintVarying
 from acceleration_constraint_varying import JointAccelerationConstraintVarying
 from toppra.constraint import DiscretizationType
@@ -17,16 +19,17 @@ class TrajectoryGenerationManager2:
     distance_around_turns = 5
     distance_for_equal_limits = 15
     max_acc = 2
-    max_speed_eps = 0.2
-    max_acc_eps = 0.2
+    max_speed_eps = 0.4
+    max_acc_eps = 0.5
     max_vert_speed = 2.0
     max_vert_acc = 1.0
     max_heading_speed = 1.0
     max_heading_acc = 1.0
 
+    constr_temp = []
+
     class WaypointConstraint:
-        def __init__(self, x_speed, x_acc, y_speed, y_acc, z_speed, z_acc, heading_speed, heading_acc):
-            max_speed = 10
+        def __init__(self, x_speed, x_acc=0, y_speed=0, y_acc=0, z_speed=0, z_acc=0, heading_speed=0, heading_acc=0):
             self.x_speed = x_speed
             self.x_acc = x_acc
             self.y_speed = y_speed
@@ -47,14 +50,14 @@ class TrajectoryGenerationManager2:
     _waypoints: np.array = np.array([[], []])
     _path = None
     _current_waypoints_constraints: List[WaypointConstraint] = []
-    _waypoints_max_constraints_distances: List[(float, float)] = []
+    _waypoints_max_constraints_distances: List[Tuple[float, float]] = []
 
     def __init__(self, dof: int = 4):
         if dof < 2:
             raise ValueError("Degree of freedom should be at least 2")
         self.dof = dof
 
-    def _get_waypoint_constraints(self, waypoint_idx: int) -> (np.aray, np.array):
+    def _get_waypoint_constraints(self, waypoint_idx: int) -> (np.array, np.array):
         if waypoint_idx < 0 or waypoint_idx >= len(self._current_waypoints_constraints):
             raise IndexError(f"Waypoint with index {waypoint_idx} does not exist")
         constraint = self._current_waypoints_constraints[waypoint_idx]
@@ -66,7 +69,7 @@ class TrajectoryGenerationManager2:
             return 0, dist
         ratio_first = abs(
             (x - self._waypoints[0][waypoint_idx_0]) / (
-                    self._waypoints[0][waypoint_idx_1] - self.waypoints[0][waypoint_idx_0]))
+                    self._waypoints[0][waypoint_idx_1] - self._waypoints[0][waypoint_idx_0]))
         return dist * ratio_first, dist * (1 - ratio_first)
 
     def _get_unit_vector(self, waypoints_idx_0, waypoints_idx_1):
@@ -81,14 +84,13 @@ class TrajectoryGenerationManager2:
         """
         waypoints_labels = list(self._waypoints[0])
         for i in range(len(waypoints_labels)):
-            if x >= waypoints_labels[i]:
-                prev_waypoint_idx = i
+            if x < waypoints_labels[i]:
+                prev_waypoint_idx = i - 1
                 break
         else:
-            # This should never happen
-            raise ValueError(f"Cannot find the closest waypoint to a point with label {x}")
+            prev_waypoint_idx = len(waypoints_labels) - 2
 
-        distances_to_waypoints = self._get_distances_between_waypoints(prev_waypoint_idx, prev_waypoint_idx + 1)
+        distances_to_waypoints = self._get_distances_between_waypoints(prev_waypoint_idx, prev_waypoint_idx + 1, x)
 
         # If the point is close enough to some of waypoints, set constraints to maximum on each axis
         if distances_to_waypoints[0] < self._waypoints_max_constraints_distances[prev_waypoint_idx][1] or \
@@ -98,13 +100,14 @@ class TrajectoryGenerationManager2:
 
         # Otherwise, calculate the direction vector of the path between twi waypoints and set constraints in the way
         # that the maximum speed and acceleration can be reached only along that path segment
-        x_speed, y_speed = map(abs, self.get_unit_vector(prev_waypoint_idx, prev_waypoint_idx + 1))
+        x_speed, y_speed = map(abs, self._get_unit_vector(prev_waypoint_idx, prev_waypoint_idx + 1))
 
         return np.array(
             [[-x_speed * self.max_speed - self.max_speed_eps, x_speed * self.max_speed + self.max_speed_eps],
              [-y_speed * self.max_speed - self.max_speed_eps, y_speed * self.max_speed + self.max_speed_eps]]), \
-               np.array([[-x_speed * self.max_acc - self.max_acc_eps, x_speed * self.max_acc + self.max_acc_eps],
-                         [-y_speed * self.max_acc - self.max_acc_eps, y_speed * self.max_acc + self.max_acc_eps]])
+               np.array(
+                   [[-x_speed * self.max_acc - self.max_acc_eps, x_speed * self.max_acc + self.max_acc_eps],
+                    [-y_speed * self.max_acc - self.max_acc_eps, y_speed * self.max_acc + self.max_acc_eps]])
 
     def _custom_constraints(self, x):
         horizontal_speed, horizontal_acc = self._custom_horizontal_constraints(x)
@@ -113,18 +116,23 @@ class TrajectoryGenerationManager2:
 
         # Add vertical speed and acceleration constraints if the path DOF >= 3 (x, y, z)
         if self.dof >= 3:
-            additional_dof_speed.append(self.max_vert_speed)
-            additional_dof_acc.append(self.max_vert_acc)
+            additional_dof_speed.append([-self.max_vert_speed, self.max_vert_speed])
+            additional_dof_acc.append([-self.max_vert_acc, self.max_vert_acc])
 
         # Add heading speed and acceleration constraints if the path DOF >= 4 (x, y, z, heading)
         if self.dof >= 4:
-            additional_dof_speed.append(self.max_heading_speed)
-            additional_dof_acc.append(self.max_heading_acc)
+            additional_dof_speed.append([-self.max_heading_speed, self.max_heading_speed])
+            additional_dof_acc.append([-self.max_heading_acc, self.max_heading_acc])
+
+        # print(x, np.concatenate((horizontal_speed, additional_dof_speed)), \
+        #        np.concatenate((horizontal_acc, additional_dof_acc)))
 
         return np.concatenate((horizontal_speed, additional_dof_speed)), \
                np.concatenate((horizontal_acc, additional_dof_acc))
 
     def _custom_speed_constraints(self, x):
+        constr = self._custom_constraints(x)[1]
+        self.constr_temp.append([x, constr[0][1], constr[1][1]])
         return self._custom_constraints(x)[0]
 
     def _custom_acc_constraints(self, x):
@@ -146,24 +154,54 @@ class TrajectoryGenerationManager2:
         Compute the distance around the turn, at which the speed and acceleration will have constraints not dependent
         on the path segment rotation
         :param angle: angle of the turn
-        :return: estimated distance, at which allowing max speed and acceleration in each axis should not lead to the
+        :return: estimated distance before and after the waypoint, at which allowing max speed and acceleration in each axis should not lead to the
         constraints violation
         """
         # TODO: Make a more clever algorithm here, to not estimate too little or too much
 
         # If the angle is close to 0 or 2*pi, set the distance to 0
-        if min(abs(angle), abs(angle - 2 * math.pi)) < 0.1:
-            return 0
+        if min(abs(angle), abs(angle - math.pi)) < 0.1:
+            return 0, 0
 
         # For now, just set very optimistic constraints, that for sure will have to be changed
         # Acceleration time
         t_acc = self.max_speed / self.max_acc
         s_acc = 0.5 * self.max_acc * t_acc ** 2
-        return s_acc
 
-    def _constraints_violated(self, trajectory) -> bool:
+        print(angle, s_acc)
+        return s_acc * 2, s_acc * 2
+
+    def _constraints_violated(self, trajectory: toppra.interpolator.PolynomialPath) -> List[Tuple[int, float]]:
         # TODO
-        pass
+        sampling_dt = 0.4
+        ts = np.arange(0, trajectory.duration, sampling_dt)
+
+        # Sample the trajectory position and speed
+        pos_sample = trajectory(ts)
+        vel_sample = trajectory(ts, 1)
+
+        # Create the dict containing the closest distance to a constraint violation point from each waypoint
+        closest_violation = {i: float('inf') for i in range(len(self._waypoints[0]))}
+
+        # Go through each trajectory sample and check if constraints are violated
+        # TODO: check here if no waypoint pass can be missed here due to sampling_dt or trajectory generation error
+        current_waypoint = 0
+        next_waypoint = 1
+
+        for i in range(len(ts)):
+            pos = pos_sample[i]
+            horizontal_vel = np.norm(vel_sample[i][:2])
+
+            if horizontal_vel > self.max_speed + self.max_speed_eps:
+                # Update te previous waypoint violation distance
+                current_waypoint_distance = np.norm(self._waypoints[current_waypoint] - pos)
+                next_waypoint_distance = np.norm(self._waypoints[next_waypoint] - pos)
+
+                closest_violation[current_waypoint] = min(closest_violation[current_waypoint],
+                                                          current_waypoint_distance)
+                closest_violation[next_waypoint] = min(closest_violation[next_waypoint], next_waypoint_distance)
+
+        return [(idx, violation) for idx, violation in closest_violation if closest_violation != float('inf')]
 
     def _update_waypoint_constraints(self, trajectory):
         # TODO
@@ -176,21 +214,18 @@ class TrajectoryGenerationManager2:
         self._waypoints = self._path.waypoints
 
         # Generate initial constraints
-        self._current_waypoints_constraints.append(0)
-        for i in range(1, len(self._waypoints) - 1):
-            self._current_waypoints_constraints.append(self._no_constraints_init_distance(get_angle(
+        self._waypoints_max_constraints_distances.append((0, 0))
+        for i in range(1, len(self._waypoints[0]) - 1):
+            self._waypoints_max_constraints_distances.append(self._no_constraints_init_distance(get_angle(
                 self._waypoints[1][i - 1],
                 self._waypoints[1][i],
                 self._waypoints[1][i + 1]
             )))
-        self._current_waypoints_constraints.append(0)
+        self._waypoints_max_constraints_distances.append((0, 0))
 
         trajectory = self._plan_one_trajectory()
-        while self._constraints_violated(trajectory):
+        while violation := self._constraints_violated(trajectory):
             self._update_waypoint_constraints(trajectory)
             trajectory = self._plan_one_trajectory()
 
-
         return trajectory
-
-
