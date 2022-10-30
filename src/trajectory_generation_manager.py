@@ -193,9 +193,9 @@ class TrajectoryGenerationManager2:
         t_acc = self.max_speed / self.max_acc
         s_acc = 0.5 * self.max_acc * t_acc ** 2
 
-        return s_acc * 20, s_acc * 20
+        return s_acc * 2, s_acc * 2
 
-    def _constraints_violated(self, trajectory: toppra.interpolator.PolynomialPath) -> List[Tuple[int, (float, float)]]:
+    def _constraints_violated(self, trajectory: toppra.interpolator.PolynomialPath) -> List[Tuple[int, Tuple[float, float]]]:
         """
         Find the points of speed constraint violation
         NOTE: the function returns the empty list if the speed constraints are satisfied
@@ -206,7 +206,7 @@ class TrajectoryGenerationManager2:
                                                     distance to closest speed violation after the waypoint))
         """
         # TODO: move this to some external parameter
-        sampling_dt = 0.2
+        sampling_dt = 0.05
         ts = np.arange(0, trajectory.duration, sampling_dt)
 
         # Sample the trajectory position and speed
@@ -255,7 +255,7 @@ class TrajectoryGenerationManager2:
         return [(idx, violation) for idx, violation in closest_violation.items() if
                 violation != [float('inf'), float('inf')]]
 
-    def _update_waypoint_constraints(self, violation: List[(int, (float, float))]) -> None:
+    def _update_waypoint_constraints(self, violation: List[Tuple[int, Tuple[float, float]]]) -> None:
         """
         Update the distances with no constraints around each waypoint based on the distances of the closest speed
         constraint violation to each waypoint
@@ -297,7 +297,6 @@ class TrajectoryGenerationManager2:
 
         # TODO: change prints here to logging to ROS info
         self.log_info("Planning the initial trajectory...")
-        self.log_info(f"Constraints: {self._waypoints_max_constraints_distances}")
 
         trajectory = self._plan_one_trajectory()
         replan_counter = 0

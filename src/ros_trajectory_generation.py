@@ -13,11 +13,11 @@ import numpy as np
 from utils import get_parameter, log_info, log_err, quaternion_to_roll_pitch_yaw, get_pose_in_frame, transform_to_gps_origin, log_warn
 from mrs_msgs.msg import DynamicsConstraints
 import math
+from trajectory_generation_manager import TrajectoryGenerationManager2
 
 current_pose = []
 current_constraints: DynamicsConstraints = DynamicsConstraints()
 current_constraints_set = False
-
 
 def constraints_callback(constraints: DynamicsConstraints):
     global current_constraints, current_constraints_set
@@ -53,8 +53,8 @@ def service_generate_trajectory(req: PathSrvRequest) -> PathSrvResponse:
     sleep_s(get_parameter('sleep_after_stop'))
     try:
         sampling_dt = get_parameter('sampling_dt')
-        # TODO: use not default constraints, but some from path request
-        manager = trajectory_generation.TrajectoryGenerationManager(dof=4)
+
+        manager = TrajectoryGenerationManager2(dof=4, log_info=log_info, log_error=log_err)
 
         if req.path.override_constraints:
             manager.max_speed = req.path.override_max_velocity_horizontal
@@ -73,7 +73,7 @@ def service_generate_trajectory(req: PathSrvRequest) -> PathSrvResponse:
                 if not current_constraints_set:
                     log_err("Current constraints still could not be read from constraint manager")
                     # TODO: use own exception class here
-                    raise Exception("Current constraint not set")
+                    raise RuntimeError("Current constraint not set")
                 manager.max_speed = min(manager.max_speed, current_constraints.horizontal_speed)
                 manager.max_acc = min(manager.max_acc, current_constraints.horizontal_acceleration)
                 manager.max_vert_speed = min(manager.max_vert_speed, current_constraints.vertical_ascending_speed)
@@ -116,24 +116,21 @@ def service_generate_trajectory(req: PathSrvRequest) -> PathSrvResponse:
 
             request.trajectory.points.append(reference)
 
-        run_type = os.getenv('RUN_TYPE')
-        if run_type == 'simulation':
-            # Using only one known UAV, so start trajectory following
-            trajectory_service = f'{rospy.get_namespace()}control_manager/trajectory_reference'
+        # Using only one known UAV, so start trajectory following
+        trajectory_service = f'{rospy.get_namespace()}control_manager/trajectory_reference'
 
-            sp = rospy.ServiceProxy(trajectory_service, TrajectoryReferenceSrv)
-            resp = sp.call(request)
+        sp = rospy.ServiceProxy(trajectory_service, TrajectoryReferenceSrv)
+        resp = sp.call(request)
 
-            log_info("Trajectory setting call result: " + resp.message)
+        log_info("Trajectory setting call result: " + resp.message)
 
-            response = PathSrvResponse()
-            response.success = resp.success
-            response.message = resp.message
-            return response
+        response = PathSrvResponse()
+        response.success = resp.success
+        response.message = resp.message
+        return response
     except Exception as e:
         log_err("Trajectory not generated: " + str(e))
         return PathSrvResponse(success=False, message=str(e))
-    return PathSrvResponse(success=True, message='No trajectory published')
 
 
 def main():
