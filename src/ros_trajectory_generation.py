@@ -7,7 +7,6 @@ from mrs_msgs.srv import PathSrv, PathSrvRequest, PathSrvResponse
 from mrs_msgs.msg import Reference
 from nav_msgs.msg import Odometry
 from std_srvs.srv import Trigger, TriggerRequest
-import trajectory_generation
 import os
 import numpy as np
 from utils import get_parameter, log_info, log_err, quaternion_to_roll_pitch_yaw, get_pose_in_frame, transform_to_gps_origin, log_warn

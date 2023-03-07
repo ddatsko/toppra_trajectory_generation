@@ -3,7 +3,7 @@ heading_speed: 1  # [rad / s]
 heading_acc: 1  # [rad / s^2]
 
 # Time between sampled trajectory points sent to the control manager
-sampling_dt: 0.1  # [s]
+sampling_dt: 0.02  # [s]
 
 # When generating constraints per axis, this value will be added to each axis
 # This way, when travelling along horizontal and vertical lines, the UAV can still move not only strictly along the line

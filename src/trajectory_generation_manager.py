@@ -1,6 +1,6 @@
 import numpy as np
 import toppra as ta
-from typing import List, Tuple
+from typing import List, Tuple, Type, Optional
 
 import toppra.interpolator
 from toppra.constraint import JointVelocityConstraintVarying
@@ -9,6 +9,8 @@ from toppra.constraint import DiscretizationType
 import toppra.algorithm as algo
 import math
 from utils import get_angle
+from path_manipulations import rotate_path, split_waypoints_into_sweeping_chunks, \
+    move_connections_to_segments, add_waypoints_with_distance
 
 
 # This class is intended to replace the one in trajectory_generation when working well
@@ -21,7 +23,7 @@ class TrajectoryGenerationManager2:
     distance_for_equal_limits = 15
     max_acc = 2
     max_speed_eps = 0.4
-    max_speed_violation_eps = 0.7
+    max_speed_violation_eps = 1
     max_acc_eps = 0.5
     max_vert_speed = 2.0
     max_vert_acc = 1.0
@@ -49,6 +51,10 @@ class TrajectoryGenerationManager2:
         :param log_info: function for logging info data. Print by default
         :param log_error: function for logging errors. Print by default
         """
+        self._waypoints_max_constraints_distances = []
+        self._no_turn_waypoints_idx = set()
+        self._waypoints = np.array([[], []])
+        self.constr_temp = []
         self.log_info = log_info
         self.log_error = log_error
         if dof < 2:
@@ -88,6 +94,13 @@ class TrajectoryGenerationManager2:
         :return: Speed and acceleration constraints for first 2 DOF for that point taking into account
         distance to closest waypoints and the distance to them for relaxed constraints
         """
+        # If x is not inside the path, just return constraints per axis
+        if x < 0 or x > 1:
+            return np.array([[-self.max_speed, self.max_speed],
+                             [-self.max_speed, self.max_speed]]), \
+                np.array([[-self.max_acc, self.max_acc],
+                          [-self.max_acc, self.max_acc]])
+
         waypoints_labels = list(self._waypoints[0])
         for i in range(len(waypoints_labels)):
             if x < waypoints_labels[i]:
@@ -106,22 +119,25 @@ class TrajectoryGenerationManager2:
 
         distances_to_waypoints = self._get_distances_between_waypoints(prev_waypoint_idx, next_waypoint_idx, x)
 
-        # If the point is close enough to some of waypoints, set constraints to maximum on each axis
+        # If the point is close enough to turning waypoints, set constraints to maximum on each axis
         if distances_to_waypoints[0] < self._waypoints_max_constraints_distances[prev_waypoint_idx][1] or \
                 distances_to_waypoints[1] < self._waypoints_max_constraints_distances[next_waypoint_idx][0]:
-            return np.array([[-self.max_speed, self.max_speed], [-self.max_speed, self.max_speed]]), \
-                   np.array([[-self.max_acc, self.max_acc], [-self.max_acc, self.max_acc]])
+            return np.array([[-self.max_speed - self.max_speed_eps, self.max_speed + self.max_speed_eps],
+                             [-self.max_speed - self.max_speed_eps, self.max_speed + self.max_speed_eps]]), \
+                np.array([[-self.max_acc - self.max_acc_eps, self.max_acc + self.max_acc_eps],
+                          [-self.max_acc - self.max_acc_eps, self.max_acc + self.max_acc_eps]])
 
         # Otherwise, calculate the direction vector of the path between twi waypoints and set constraints in the way
         # that the maximum speed and acceleration can be reached only along that path segment
         x_speed, y_speed = map(abs, self._get_unit_vector(prev_waypoint_idx, next_waypoint_idx))
+        # print(x_speed, y_speed)
 
         return np.array(
             [[-x_speed * self.max_speed - self.max_speed_eps, x_speed * self.max_speed + self.max_speed_eps],
              [-y_speed * self.max_speed - self.max_speed_eps, y_speed * self.max_speed + self.max_speed_eps]]), \
-               np.array(
-                   [[-x_speed * self.max_acc - self.max_acc_eps, x_speed * self.max_acc + self.max_acc_eps],
-                    [-y_speed * self.max_acc - self.max_acc_eps, y_speed * self.max_acc + self.max_acc_eps]])
+            np.array(
+                [[-x_speed * self.max_acc - self.max_acc_eps, x_speed * self.max_acc + self.max_acc_eps],
+                 [-y_speed * self.max_acc - self.max_acc_eps, y_speed * self.max_acc + self.max_acc_eps]])
 
     def _custom_constraints(self, x: float) -> (np.array, np.array):
         """
@@ -144,7 +160,7 @@ class TrajectoryGenerationManager2:
             additional_dof_acc.append([-self.max_heading_acc, self.max_heading_acc])
 
         return np.concatenate((horizontal_speed, additional_dof_speed)), \
-               np.concatenate((horizontal_acc, additional_dof_acc))
+            np.concatenate((horizontal_acc, additional_dof_acc))
 
     def _custom_speed_constraints(self, x: float) -> np.array:
         """
@@ -159,9 +175,10 @@ class TrajectoryGenerationManager2:
     def _custom_acc_constraints(self, x):
         return self._custom_constraints(x)[1]
 
-    def _plan_one_trajectory(self):
+    def _plan_one_trajectory(self, way_pts=None):
         """
         Plan one trajectory using toppra and current constraints
+        :param way_pts If None, self._path will be used. Otherwise, way points to visit
         :return: planned trajectory
         """
         pc_vel = ta.constraint.JointVelocityConstraintVarying(lambda x: self._custom_speed_constraints(x))
@@ -169,9 +186,20 @@ class TrajectoryGenerationManager2:
                                                     discretization_scheme=DiscretizationType.Collocation,
                                                     alim_func=lambda x: self._custom_acc_constraints(x))
 
-        instance = algo.TOPPRA([pc_vel, pc_acc], self._path, parametrizer='ParametrizeConstAccel')
+        instance = algo.TOPPRA([pc_vel, pc_acc], way_pts, parametrizer='ParametrizeConstAccel')
         jnt_traj = instance.compute_trajectory()
 
+        return jnt_traj
+
+    def _plan_chunk_trajectory(self, chunk_way_pts, in_speed=0, out_speed=0):
+        vlim, alim = self._custom_constraints(-1)
+
+        pc_vel = ta.constraint.JointVelocityConstraint(vlim)
+        pc_acc = ta.constraint.JointAccelerationConstraint(alim)
+
+        instance = algo.TOPPRA([pc_vel, pc_acc], chunk_way_pts, parametrizer='ParametrizeConstAccel')
+        # jnt_traj = instance.compute_trajectory(sd_start=in_speed, sd_end=out_speed)
+        jnt_traj = instance.compute_trajectory()
         return jnt_traj
 
     def _no_constraints_init_distance(self, angle):
@@ -192,10 +220,10 @@ class TrajectoryGenerationManager2:
         # Acceleration time
         t_acc = self.max_speed / self.max_acc
         s_acc = 0.5 * self.max_acc * t_acc ** 2
-
         return s_acc * 2, s_acc * 2
 
-    def _constraints_violated(self, trajectory: toppra.interpolator.PolynomialPath) -> List[Tuple[int, Tuple[float, float]]]:
+    def _constraints_violated(self, trajectory: toppra.interpolator.PolynomialPath) -> List[
+        Tuple[int, Tuple[float, float]]]:
         """
         Find the points of speed constraint violation
         NOTE: the function returns the empty list if the speed constraints are satisfied
@@ -229,6 +257,7 @@ class TrajectoryGenerationManager2:
             horizontal_vel = np.linalg.norm(vel_sample[i][:2])
 
             if horizontal_vel > self.max_speed + self.max_speed_violation_eps * np.sqrt(2):
+                # print(f"VIOLATION: next_turning_waypoint_idx = {next_turning_waypoint_idx}, speed: {horizontal_vel}")
                 # Update te previous and next waypoints violation distance
                 current_waypoint_distance = np.linalg.norm(self._waypoints[1][current_waypoint] - pos)
                 next_waypoint_distance = np.linalg.norm(self._waypoints[1][next_waypoint] - pos)
@@ -260,8 +289,8 @@ class TrajectoryGenerationManager2:
         Update the distances with no constraints around each waypoint based on the distances of the closest speed
         constraint violation to each waypoint
         :param violation: List of speed violation in format (<wypoint index>,
-                                                            (distance to closest speed violation before the waypoint,
-                                                            distance to closest speed violation after the waypoint))
+                                                            (distance to the closest speed violation before the waypoint,
+                                                            distance to the closest speed violation after the waypoint))
         """
         # TODO: check if this condition is not too strict
         for idx, violation_distance in violation:
@@ -269,9 +298,12 @@ class TrajectoryGenerationManager2:
             new_left_const = min(self._waypoints_max_constraints_distances[idx][0], violation_distance[0])
             new_right_const = min(self._waypoints_max_constraints_distances[idx][1], violation_distance[1])
 
-            self._waypoints_max_constraints_distances[idx] = [new_left_const, new_right_const]
+            # Update new constraints as a mean value between old constraints distances and violation distance
+            self._waypoints_max_constraints_distances[idx] = [
+                (new_left_const + self._waypoints_max_constraints_distances[idx][0]) / 2,
+                (new_right_const + self._waypoints_max_constraints_distances[idx][1]) / 2]
 
-    def plan_trajectory(self, way_pts, info_logger=None):
+    def plan_trajectory(self, way_pts) -> Optional[ta.interpolator.AbstractGeometricPath]:
         """
         Main function for trajectory planning
         Assuming that the UAV is located in waypoints[0] initially with 0 speed
@@ -295,24 +327,164 @@ class TrajectoryGenerationManager2:
 
         self._waypoints_max_constraints_distances.append((0, 0))
 
-        # TODO: change prints here to logging to ROS info
         self.log_info("Planning the initial trajectory...")
 
-        trajectory = self._plan_one_trajectory()
+        trajectory = self._plan_one_trajectory(self._path)
         replan_counter = 0
+
+        # print("Initial constraint distances: ", self._waypoints_max_constraints_distances)
+
         while violation := self._constraints_violated(trajectory):
             # TODO: introduce some parameter for the maximum number of replannings here
-            if replan_counter >= 10:
+            if replan_counter >= 5:
                 break
             replan_counter += 1
 
             self.constr_temp = []
             self.log_info(f"Replanning the trajectory. Iteration: {replan_counter}")
             self._update_waypoint_constraints(violation)
-            trajectory = self._plan_one_trajectory()
+
+            # print("Waypoints constraints distances after replanning: ", self._waypoints_max_constraints_distances)
+
+            trajectory = self._plan_one_trajectory(self._path)
         else:
             self.log_info("Trajectory planned successfully with constraints not violated")
             return trajectory
 
         self.log_info("Failed to produce a trajectory not violating the constraints...")
         return trajectory
+
+    # def _match_2_trajectories(self, trajectory1: (np.array, np.array, np.array), trajectory2: (np.array, np.array, np.array), sampling_dt=0.1) -> (int, int):
+    #     """
+    #     Find two points from different trajectories, at which the merging will be the best
+    #     (TODO: describe the criteria of "better" merging point)
+    #     :param sampling_dt: time difference between each two consecutive points in trajectories
+    #     :return:
+    #     """
+    #     # At this distance points are considered to be "close", meaning almost in the same location
+    #     close_eps = 2 * sampling_dt * np.linalg.norm(np.array([self.max_speed, self.max_speed, self.max_vert_speed, self.max_heading_speed]))
+    #
+    #     # Pointer for trajectory 1 and trajectory 2
+    #     i1, i2 = trajectory1[0].shape[0] - 1, 0
+    #     while np.linalg.norm(trajectory1[0][i1] - trajectory2[0][i2]) > close_eps and i1 >= 0:
+    #         # print(np.linalg.norm(trajectory1[0][i1] - trajectory2[0][i2]))
+    #         i1 -= 1
+    #
+    #     if i1 < 0:
+    #         # TODO: replace with a custom error in future
+    #         raise RuntimeError("Could not find a matching point in trajectories")
+    #
+    #     while i1 != trajectory1[0].shape[0] - 1:
+    #         dist = np.linalg.norm(trajectory1[0][i1] - trajectory2[0][i2])
+    #         # print(f"Point: {trajectory1[0][i1]}, {trajectory2[0][i2]}, distance: {dist}")
+    #
+    #         d1 = np.linalg.norm(trajectory1[0][i1] - trajectory1[0][-1])
+    #         d2 = np.linalg.norm(trajectory2[0][i2] - trajectory1[0][-1])
+    #         # print(f"d1: {d1}, d2: {d2}")
+    #
+    #         if d2 < d1:
+    #             i1 += 1
+    #             continue
+    #
+    #         if d2 > np.linalg.norm(trajectory2[0][i2 + 1] - trajectory1[0][-1]):
+    #             i2 += 1
+    #             continue
+    #
+    #         break
+    #
+    #
+    #
+    # def merge_trajectories(self, trajectories):
+    #     ts = np.arange(0, trajectories[0].duration, 0.1)
+    #
+    #     # Generate initial trajectory parameters from the first trajectory in the list
+    #     res_positions = trajectories[0](ts)
+    #     res_velocities = trajectories[0](ts, 1)
+    #     res_accelerations = trajectories[0](ts, 2)
+    #
+    #     for i in range(1, len(trajectories)):
+    #         ts = np.arange(0, trajectories[i].duration, 0.1)
+    #         positions = trajectories[i](ts)
+    #         velocities = trajectories[i](ts)
+    #         accelerations = trajectories[i](ts)
+    #
+    #         self._match_2_trajectories((res_positions, res_velocities, res_accelerations), (positions, velocities, accelerations))
+    #
+
+    def plan_trajectory_by_chunks(self, way_pts, sampling_dt):
+        """
+        Plan trajectory by splitting it into chunks of "sweeping" and gluing them together
+        :param way_pts: List of waypoints. The decomposition into chunks is performed internally
+        :param sampling_dt time difference between samples in the produces trajectory
+        :return: trajectory as a sequence of waypoints with time difference between them equal to sampling_dt
+        """
+        way_pts = np.array(way_pts)
+        # way_pts =
+        # If the array is 2d meaning that way_pts consists way points only, decompose it into chunks internally
+        split = split_waypoints_into_sweeping_chunks(way_pts)
+        # moved = move_connections_to_segments(self.max_speed, self.max_acc, split)
+
+        # print(moved[0].waypoints)
+        # print("======")
+        # print(moved[1].waypoints)
+
+        full_trajectory = None
+        for rotation, waypoints in split:
+
+            waypoints = add_waypoints_with_distance(waypoints, 5)
+            path = rotate_path(waypoints, -rotation)
+
+            import matplotlib.pyplot as plt
+            interpolated = ta.SplineInterpolator(np.linspace(0, 1, path.shape[0]), path)
+            ss_sam = np.linspace(0, 1, path.shape[0] * 10)
+            vel = interpolated(ss_sam, order=1)
+            plt.plot(vel[:, 0])
+            plt.plot(vel[:, 1])
+            plt.show()
+
+            trajectory = self._plan_chunk_trajectory(
+                ta.SplineInterpolator(np.linspace(0, 1, path.shape[0]), path),
+                in_speed=0,
+                out_speed=0)
+            if trajectory is None:
+                raise Exception("No trajectory produced. TODO: write the code to not whrow any exception here")
+
+            ts = np.arange(0, trajectory.duration, sampling_dt)
+            position_samples = trajectory(ts)
+            velocity_samples = trajectory(ts, 1)
+            acceleration_samples = trajectory(ts, 2)
+
+            plt.plot(position_samples[:, 0], position_samples[:, 1])
+            plt.plot(path[:, 0], path[:, 1])
+            plt.show()
+
+            # position_samples = rotate_path(position_samples, chunk.rotation)
+            # velocity_samples = rotate_path(velocity_samples, chunk.rotation)
+            # acceleration_samples = rotate_path(acceleration_samples, chunk.rotation)
+
+            position_samples = rotate_path(position_samples, rotation)
+
+            chunk_trajectory = (position_samples, velocity_samples, acceleration_samples)
+
+            if full_trajectory is None:
+                full_trajectory = chunk_trajectory
+            else:
+                full_trajectory = tuple(
+                    map(lambda t: np.concatenate((t[0], t[1])), zip(full_trajectory, chunk_trajectory)))
+
+        return full_trajectory
+
+
+if __name__ == '__main__':
+    # Test functions here
+    way_pts = np.array([[-2, 0], [-1, 0], [0, 0], [1, 1], [2, 2]])
+    split = split_waypoints_into_sweeping_chunks(way_pts)
+    print(split)
+    for angle, path in split:
+        print("---------")
+        new_p = rotate_path(path, angle)
+        print(new_p)
+
+# [[1.18072096e+03 1.13686838e-13 0.00000000e+00 0.00000000e+00]
+#  [8.57483500e+02 1.17375050e+03 0.00000000e+00 0.00000000e+00]
+#  [1.00195000e+03 1.40638000e+03 0.00000000e+00 0.00000000e+00]] 1.015067480620981
